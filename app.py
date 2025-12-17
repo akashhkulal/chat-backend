@@ -18,9 +18,10 @@ socketio = SocketIO(app, cors_allowed_origins="*")
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(80), nullable=False)
+    name = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
+
 
 class Message(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -33,7 +34,6 @@ class Message(db.Model):
 @app.route("/register", methods=["POST"])
 def register():
     data = request.json
-
     name = data.get("name")
     email = data.get("email")
     password = data.get("password")
@@ -41,11 +41,9 @@ def register():
     if not name or not email or not password:
         return jsonify({"message": "Missing fields"}), 400
 
-    # ❌ check email
     if User.query.filter_by(email=email).first():
         return jsonify({"message": "Email already registered"}), 409
 
-    # ❌ check name
     if User.query.filter_by(name=name).first():
         return jsonify({"message": "Name already taken"}), 409
 
@@ -64,9 +62,9 @@ def register():
 @app.route("/login", methods=["POST"])
 def login():
     data = request.json
-    user = User.query.filter_by(email=data["email"]).first()
+    user = User.query.filter_by(email=data.get("email")).first()
 
-    if not user or not check_password_hash(user.password, data["password"]):
+    if not user or not check_password_hash(user.password, data.get("password")):
         return jsonify({"message": "Invalid credentials"}), 401
 
     return jsonify({
@@ -79,21 +77,34 @@ def login():
 
 # ---------------- USERS ----------------
 
-@app.route("/users", methods=["GET"])
-def users():
-    users = User.query.all()
-    return jsonify([
-        {"id": u.id, "name": u.name, "email": u.email}
-        for u in users
-    ])
-
 @app.route("/search", methods=["GET"])
 def search_users():
     name = request.args.get("name", "")
     users = User.query.filter(User.name.ilike(f"%{name}%")).all()
     return jsonify([
-        {"id": u.id, "name": u.name, "email": u.email}
+        {"id": u.id, "name": u.name}
         for u in users
+    ])
+
+# ---------------- CHAT HISTORY API (NEW) ----------------
+
+@app.route("/messages", methods=["GET"])
+def get_messages():
+    sender_id = request.args.get("sender_id")
+    receiver_id = request.args.get("receiver_id")
+
+    messages = Message.query.filter(
+        ((Message.sender_id == sender_id) & (Message.receiver_id == receiver_id)) |
+        ((Message.sender_id == receiver_id) & (Message.receiver_id == sender_id))
+    ).order_by(Message.id.asc()).all()
+
+    return jsonify([
+        {
+            "sender_id": m.sender_id,
+            "receiver_id": m.receiver_id,
+            "message": m.message
+        }
+        for m in messages
     ])
 
 # ---------------- SOCKET ----------------
@@ -101,6 +112,7 @@ def search_users():
 @socketio.on("join")
 def join(data):
     join_room(data["room"])
+    print(f"User joined room: {data['room']}")
 
 @socketio.on("send_message")
 def send_message(data):
@@ -111,6 +123,7 @@ def send_message(data):
     )
     db.session.add(msg)
     db.session.commit()
+
     emit("receive_message", data, room=data["room"])
 
 # ---------------- RUN ----------------
