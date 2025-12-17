@@ -75,16 +75,25 @@ def search_users():
 
 # ---------------- CHAT HISTORY (FIXED) ----------------
 
-@app.route("/messages/<room>")
+@app.route("/messages/<room>", methods=["GET"])
 def get_messages(room):
-    msgs = Message.query.filter_by(room=room).order_by(Message.id.asc()).all()
+    msgs = (
+        Message.query
+        .filter_by(room=room)
+        .order_by(Message.id.asc())
+        .all()
+    )
+
     return jsonify([
         {
+            "id": m.id,
             "sender_id": m.sender_id,
             "receiver_id": m.receiver_id,
             "message": m.message
-        } for m in msgs
+        }
+        for m in msgs
     ])
+
 
 # ---------------- SOCKET ----------------
 
