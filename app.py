@@ -33,14 +33,33 @@ class Message(db.Model):
 @app.route("/register", methods=["POST"])
 def register():
     data = request.json
+
+    name = data.get("name")
+    email = data.get("email")
+    password = data.get("password")
+
+    if not name or not email or not password:
+        return jsonify({"message": "Missing fields"}), 400
+
+    # ❌ check email
+    if User.query.filter_by(email=email).first():
+        return jsonify({"message": "Email already registered"}), 409
+
+    # ❌ check name
+    if User.query.filter_by(name=name).first():
+        return jsonify({"message": "Name already taken"}), 409
+
     user = User(
-        name=data["name"],
-        email=data["email"],
-        password=generate_password_hash(data["password"])
+        name=name,
+        email=email,
+        password=generate_password_hash(password)
     )
+
     db.session.add(user)
     db.session.commit()
-    return jsonify({"message": "Registered"}), 201
+
+    return jsonify({"message": "Registered successfully"}), 201
+
 
 @app.route("/login", methods=["POST"])
 def login():
