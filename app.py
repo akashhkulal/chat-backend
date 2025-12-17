@@ -8,8 +8,8 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///chat.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///chat.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -25,6 +25,7 @@ class User(db.Model):
 
 class Message(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    room = db.Column(db.String(50), index=True)  # ✅ FIX
     sender_id = db.Column(db.Integer)
     receiver_id = db.Column(db.Integer)
     message = db.Column(db.Text)
@@ -34,25 +35,18 @@ class Message(db.Model):
 @app.route("/register", methods=["POST"])
 def register():
     data = request.json
-    name = data.get("name")
-    email = data.get("email")
-    password = data.get("password")
 
-    if not name or not email or not password:
-        return jsonify({"message": "Missing fields"}), 400
-
-    if User.query.filter_by(email=email).first():
+    if User.query.filter_by(email=data["email"]).first():
         return jsonify({"message": "Email already registered"}), 409
 
-    if User.query.filter_by(name=name).first():
+    if User.query.filter_by(name=data["name"]).first():
         return jsonify({"message": "Name already taken"}), 409
 
     user = User(
-        name=name,
-        email=email,
-        password=generate_password_hash(password)
+        name=data["name"],
+        email=data["email"],
+        password=generate_password_hash(data["password"])
     )
-
     db.session.add(user)
     db.session.commit()
 
@@ -62,49 +56,34 @@ def register():
 @app.route("/login", methods=["POST"])
 def login():
     data = request.json
-    user = User.query.filter_by(email=data.get("email")).first()
+    user = User.query.filter_by(email=data["email"]).first()
 
-    if not user or not check_password_hash(user.password, data.get("password")):
+    if not user or not check_password_hash(user.password, data["password"]):
         return jsonify({"message": "Invalid credentials"}), 401
 
     return jsonify({
-        "user": {
-            "id": user.id,
-            "name": user.name,
-            "email": user.email
-        }
+        "user": {"id": user.id, "name": user.name, "email": user.email}
     }), 200
 
 # ---------------- USERS ----------------
 
-@app.route("/search", methods=["GET"])
+@app.route("/search")
 def search_users():
     name = request.args.get("name", "")
     users = User.query.filter(User.name.ilike(f"%{name}%")).all()
-    return jsonify([
-        {"id": u.id, "name": u.name}
-        for u in users
-    ])
+    return jsonify([{"id": u.id, "name": u.name} for u in users])
 
-# ---------------- CHAT HISTORY API (NEW) ----------------
+# ---------------- CHAT HISTORY (FIXED) ----------------
 
-@app.route("/messages", methods=["GET"])
-def get_messages():
-    sender_id = request.args.get("sender_id")
-    receiver_id = request.args.get("receiver_id")
-
-    messages = Message.query.filter(
-        ((Message.sender_id == sender_id) & (Message.receiver_id == receiver_id)) |
-        ((Message.sender_id == receiver_id) & (Message.receiver_id == sender_id))
-    ).order_by(Message.id.asc()).all()
-
+@app.route("/messages/<room>")
+def get_messages(room):
+    msgs = Message.query.filter_by(room=room).order_by(Message.id.asc()).all()
     return jsonify([
         {
             "sender_id": m.sender_id,
             "receiver_id": m.receiver_id,
             "message": m.message
-        }
-        for m in messages
+        } for m in msgs
     ])
 
 # ---------------- SOCKET ----------------
@@ -112,11 +91,11 @@ def get_messages():
 @socketio.on("join")
 def join(data):
     join_room(data["room"])
-    print(f"User joined room: {data['room']}")
 
 @socketio.on("send_message")
 def send_message(data):
     msg = Message(
+        room=data["room"],           # ✅ FIX
         sender_id=data["sender_id"],
         receiver_id=data["receiver_id"],
         message=data["message"]
